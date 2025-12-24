@@ -1,13 +1,14 @@
 export interface Suggestion {
   label: string;
-  value: string;
+  description?: string;
+  value?: string;
 }
 
 export interface Message {
   id: string;
   role: 'user' | 'model' | 'system';
   text: string;
-  suggestions?: string[]; // List of quick reply options
+  suggestions?: Suggestion[]; // List of suggestion objects
   isTyping?: boolean;
   sceneImage?: string; // If the message includes a generated image
   timestamp: number;

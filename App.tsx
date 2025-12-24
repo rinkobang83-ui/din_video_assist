@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Menu, X, Video, Settings, Plane, Package, Utensils, Clapperboard, Mic, KeyRound, ArrowRight, Navigation, ShieldCheck, ShieldAlert, Loader2, CheckCircle2, Megaphone, Sparkles } from 'lucide-react';
+import { Menu, X, Video, Settings, Plane, Package, Utensils, Clapperboard, Mic, KeyRound, ArrowRight, Navigation, ShieldCheck, ShieldAlert, Loader2, CheckCircle2, Megaphone, Sparkles, Undo2 } from 'lucide-react';
 import { ChatMessage } from './components/ChatMessage';
 import { SuggestionChips } from './components/SuggestionChips';
 import { ProjectBoard } from './components/ProjectBoard';
 import { startChatSession, parseGeminiResponse, generateSceneImage, validateApiKey } from './services/geminiService';
-import { Message, Scene, MetaPrompt } from './types';
+import { Message, Scene, MetaPrompt, Suggestion } from './types';
 import { Chat } from '@google/genai';
 
 const App: React.FC = () => {
@@ -25,10 +25,14 @@ const App: React.FC = () => {
   // --- Project State ---
   const [scenes, setScenes] = useState<Scene[]>([]); 
   const [metaPrompt, setMetaPrompt] = useState<MetaPrompt | null>(null);
+  
+  // --- History State for Undo ---
+  const [history, setHistory] = useState<{messages: Message[], scenes: Scene[], metaPrompt: MetaPrompt | null}[]>([]);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
-  // Quick Starter Chips - Updated order and added Animation/Ad as requested
+  // Quick Starter Chips
   const starters = [
     { icon: <Clapperboard size={14} className="text-purple-400" />, label: "영화/드라마", prompt: "영화나 드라마 시나리오를 쓰고 싶어. 장르와 소재를 추천해줘." },
     { icon: <Sparkles size={14} className="text-yellow-400" />, label: "애니메이션", prompt: "애니메이션 영상을 기획하고 싶어. 비주얼 스타일과 스토리를 제안해줘." },
@@ -103,10 +107,42 @@ const App: React.FC = () => {
     }
   };
 
+  // --- History / Undo Logic ---
+  const saveHistory = () => {
+    setHistory(prev => [
+      ...prev,
+      {
+        messages: messages,
+        scenes: scenes,
+        metaPrompt: metaPrompt
+      }
+    ]);
+  };
+
+  const handleUndo = () => {
+    if (history.length === 0) return;
+    
+    setHistory(prev => {
+      const newHistory = [...prev];
+      const lastState = newHistory.pop();
+      
+      if (lastState) {
+        setMessages(lastState.messages);
+        setScenes(lastState.scenes);
+        setMetaPrompt(lastState.metaPrompt);
+      }
+      
+      return newHistory;
+    });
+  };
+
   // --- Chat Logic ---
 
   const handleSendMessage = async (text: string) => {
     if (!text.trim() || !chatSession) return;
+
+    // Save state before processing new turn
+    saveHistory();
 
     const userMsg: Message = {
       id: Date.now().toString(),
@@ -176,6 +212,10 @@ const App: React.FC = () => {
     } finally {
       setIsTyping(false);
     }
+  };
+
+  const handleChipSelect = (text: string) => {
+    handleSendMessage(text);
   };
 
   const checkForScenes = (text: string) => {
@@ -428,7 +468,7 @@ const App: React.FC = () => {
               {(messages.length > 2 && !messages[messages.length - 1].isTyping && messages[messages.length - 1].role === 'model') ? (
                  <SuggestionChips 
                    suggestions={messages[messages.length - 1].suggestions || []} 
-                   onSelect={handleSendMessage}
+                   onSelect={handleChipSelect}
                    disabled={isTyping}
                  />
               ) : (
@@ -451,8 +491,21 @@ const App: React.FC = () => {
 
             {/* Input and Send Button Row */}
             <div className="flex items-stretch gap-2">
+                {/* Undo Button */}
+                <button 
+                    onClick={handleUndo}
+                    disabled={history.length === 0 || isTyping}
+                    className="p-3 bg-[#12121a] hover:bg-[#1a1a24] border border-white/10 rounded-xl text-zinc-400 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-all group relative"
+                >
+                    <Undo2 size={20} />
+                    <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-max px-2 py-1 bg-black border border-white/10 text-[10px] text-zinc-300 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+                        이전으로 돌아가기
+                    </span>
+                </button>
+
                 <div className="flex-1 bg-[#0a0a10] rounded-xl border border-white/10 focus-within:border-indigo-500/50 focus-within:ring-1 focus-within:ring-indigo-500/20 transition-all">
                   <input
+                    ref={inputRef}
                     type="text"
                     value={inputValue}
                     onChange={(e) => setInputValue(e.target.value)}

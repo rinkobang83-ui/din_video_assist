@@ -1,5 +1,5 @@
 import { GoogleGenAI } from "@google/genai";
-import { Message, GeminiModel, MetaPrompt } from '../types';
+import { Message, GeminiModel, MetaPrompt, Suggestion } from '../types';
 
 const SYSTEM_INSTRUCTION = `
 당신은 "Din(딘)"입니다. 세계적인 수준의 유튜브 영상 제작 파트너이자 AI 어시스턴트입니다.
@@ -9,10 +9,11 @@ const SYSTEM_INSTRUCTION = `
 1.  **단일 질문 원칙 (가장 중요):** 한 번에 오직 **한 가지** 주제만 물어보세요. 장르, 시간, 분위기를 한꺼번에 묻지 마세요. 하나씩 순서대로 결정해 나가세요.
 2.  **중요 단어 강조:** 영화 전문 용어, 결정된 사항, 중요한 제안은 반드시 **굵게(Bold)** 처리하여 사용자가 쉽게 알아볼 수 있게 하세요.
 3.  **가정 금지:** 조명, 카메라 앵글, 분위기, 의상, 배경 등에 대해 임의로 가정하지 마세요. 항상 사용자에게 묻거나 옵션을 제안하세요.
-4.  **제안(Chips)의 원자성:** 칩(suggestions)에는 **오직 한 가지 정보**만 담아야 합니다. 여러 조건을 결합하지 마세요.
-    - **절대 금지:** "출생의 비밀 (3분)", "밝은 분위기의 브이로그" (괄호나 수식어 결합 금지)
-    - **올바른 예:** "출생의 비밀", "복수극", "3분", "5분", "밝은 분위기"
-    - 사용자가 선택하기 가장 쉬운 단답형 키워드 3~5개를 제공하세요.
+4.  **제안(Chips)의 형식:** 칩(suggestions)은 단순 문자열이 아닌 **객체 배열**이어야 합니다.
+    - 각 칩은 \`label\`(표시명)과 \`description\`(설명)을 가져야 합니다.
+    - \`label\`: 3~5단어 이내의 간결한 키워드 (예: "사이버펑크", "3분 숏폼")
+    - \`description\`: 이 옵션을 선택했을 때의 효과나 의미를 1문장으로 친절하게 설명 (예: "네온 사인과 하이테크 분위기를 연출합니다.")
+    - **절대 금지:** 괄호나 복합 조건 금지. 원자 단위로 제안하세요.
 5.  **형식:**
     -   주요 응답은 대화체로, 전문적이면서도 격려하는 말투(영화 제작 파트너처럼)를 사용하세요. 한국어로 자연스럽게 대화하세요.
     -   응답의 맨 마지막에는 반드시 JSON 블록을 출력하세요.
@@ -25,10 +26,17 @@ const SYSTEM_INSTRUCTION = `
           "en": "Title: ... \n[Visual Style] ... \n[Scene 1] ...",
           "ko": "제목: ... \n[시각 스타일] ... \n[장면 1] ..."
        },
-       "suggestions": ["다시 만들기", "이미지 생성하기"]
+       "suggestions": [
+          {"label": "다시 만들기", "description": "기획이 마음에 들지 않는다면 처음부터 다시 시작합니다."},
+          {"label": "이미지 생성하기", "description": "현재 기획된 장면들의 시각적 예시를 생성합니다."}
+       ]
     }
     \`\`\`
     *주의: "finalPrompt" 필드는 기획이 완전히 끝났을 때만 포함하세요. 그 전에는 "suggestions"만 포함합니다.*
+8.  **사용자 시나리오 분석 및 수용 (중요):**
+    - 사용자가 제안된 장르/키워드를 선택하는 대신, **이미 작성된 시나리오나 구체적인 줄거리**를 입력할 수 있습니다.
+    - 이 경우, **즉시 해당 시나리오를 분석**하여 장르, 소재, 분위기가 결정된 것으로 간주하세요. ("컨셉" 단계 완료 처리)
+    - "시나리오가 아주 흥미롭네요!"와 같이 긍정적으로 반응한 뒤, 바로 **영상 제작에 필요한 다음 필수 요소(러닝타임, 화면비율, 구체적 비주얼 스타일 등)** 중에서 빠진 부분을 질문하여 기획을 이어가세요. 불필요하게 장르를 다시 묻지 마세요.
 
 **대화 단계:**
 1.  **컨셉:** 장르와 주제 설정. (예: "장르부터 정해볼까요?")
@@ -51,11 +59,11 @@ export const startChatSession = (customKey?: string) => {
   });
 };
 
-export const parseGeminiResponse = (responseText: string): { cleanText: string; suggestions: string[]; finalPrompt?: MetaPrompt } => {
+export const parseGeminiResponse = (responseText: string): { cleanText: string; suggestions: Suggestion[]; finalPrompt?: MetaPrompt } => {
   const jsonBlockRegex = /```json\s*([\s\S]*?)\s*```/;
   const match = responseText.match(jsonBlockRegex);
 
-  let suggestions: string[] = [];
+  let suggestions: Suggestion[] = [];
   let finalPrompt: MetaPrompt | undefined = undefined;
   let cleanText = responseText;
 
@@ -65,7 +73,13 @@ export const parseGeminiResponse = (responseText: string): { cleanText: string; 
       
       // Extract Suggestions
       if (parsed.suggestions && Array.isArray(parsed.suggestions)) {
-        suggestions = parsed.suggestions;
+        // Handle both string[] (legacy/fallback) and object[] formats
+        suggestions = parsed.suggestions.map((s: any) => {
+            if (typeof s === 'string') {
+                return { label: s, description: "이 옵션을 선택하여 진행합니다." };
+            }
+            return { label: s.label, description: s.description || "이 옵션을 선택하여 진행합니다." };
+        });
       }
 
       // Extract Final Meta Prompt if present
