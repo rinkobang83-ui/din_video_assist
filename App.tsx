@@ -1,24 +1,28 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Send, Menu, X, Video, Settings, Lightbulb, Plane, Package, Utensils, Clapperboard, KeyRound, ArrowRight, Navigation } from 'lucide-react';
+import { Menu, X, Video, Settings, Plane, Package, Utensils, Clapperboard, Mic, KeyRound, ArrowRight, Navigation, ShieldCheck, ShieldAlert, Loader2, CheckCircle2 } from 'lucide-react';
 import { ChatMessage } from './components/ChatMessage';
 import { SuggestionChips } from './components/SuggestionChips';
 import { ProjectBoard } from './components/ProjectBoard';
-import { startChatSession, parseGeminiResponse, generateSceneImage } from './services/geminiService';
+import { startChatSession, parseGeminiResponse, generateSceneImage, validateApiKey } from './services/geminiService';
 import { Message, Scene } from './types';
 import { Chat } from '@google/genai';
 
 const App: React.FC = () => {
-  // State
-  const [hasApiKey, setHasApiKey] = useState(false);
-  const [isCheckingKey, setIsCheckingKey] = useState(true);
+  // --- API Key State ---
+  const [showKeyModal, setShowKeyModal] = useState(true);
+  const [activeApiKey, setActiveApiKey] = useState<string | undefined>(undefined);
+  const [tempApiKey, setTempApiKey] = useState('');
+  const [keyValidationStatus, setKeyValidationStatus] = useState<'idle' | 'checking' | 'valid' | 'invalid'>('idle');
+  const [validationMsg, setValidationMsg] = useState('');
 
+  // --- App State ---
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [chatSession, setChatSession] = useState<Chat | null>(null);
   const [showSidebar, setShowSidebar] = useState(false);
   
-  // Project State
+  // --- Project State ---
   const [scenes, setScenes] = useState<Scene[]>([]); 
   const [metaPrompt, setMetaPrompt] = useState<string | null>(null);
 
@@ -30,6 +34,7 @@ const App: React.FC = () => {
     { icon: <Package size={14} className="text-amber-400" />, label: "제품 리뷰", prompt: "새로운 테크 제품 언박싱 및 리뷰 영상 기획을 도와줘." },
     { icon: <Utensils size={14} className="text-pink-400" />, label: "요리/레시피", prompt: "자취생을 위한 간단 요리 레시피 영상 시리즈를 만들고 싶어." },
     { icon: <Clapperboard size={14} className="text-purple-400" />, label: "단편 영화", prompt: "3분 길이의 미스터리 단편 영화 시나리오를 쓰고 싶어." },
+    { icon: <Mic size={14} className="text-green-400" />, label: "나레이션 영상", prompt: "차분한 목소리의 나레이션이 중심이 되는 에세이 영상을 기획하고 싶어." },
   ];
 
   // Scroll to bottom
@@ -37,43 +42,42 @@ const App: React.FC = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // Check API Key on Mount
-  useEffect(() => {
-    const checkKey = async () => {
-      try {
-        const hasKey = await (window as any).aistudio?.hasSelectedApiKey();
-        if (hasKey) {
-          setHasApiKey(true);
-          initializeChatInterface(false); 
-        }
-      } catch (e) {
-        console.log("Environment check failed or local dev", e);
-      } finally {
-        setIsCheckingKey(false);
-      }
-    };
-    checkKey();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // --- API Key Logic ---
 
-  const handleConnectKey = async () => {
-    try {
-      if ((window as any).aistudio) {
-        await (window as any).aistudio.openSelectKey();
+  const handleValidateKey = async () => {
+      if (!tempApiKey.trim()) return;
+      setKeyValidationStatus('checking');
+      setValidationMsg('Key 유효성을 확인 중입니다...');
+
+      const result = await validateApiKey(tempApiKey);
+      
+      if (result.isValid) {
+          setKeyValidationStatus('valid');
+          setValidationMsg('정상적인 API Key입니다.');
+      } else {
+          setKeyValidationStatus('invalid');
+          setValidationMsg(result.message);
       }
-      setHasApiKey(true);
-      initializeChatInterface(true); // True = show "Key Applied" system message
-    } catch (e) {
-      console.error("Key selection failed", e);
-      // Fallback for demo
-      setHasApiKey(true);
-      initializeChatInterface(true);
-    }
   };
 
-  const initializeChatInterface = async (showSystemMsg: boolean) => {
+  const handleUseCustomKey = () => {
+      if (keyValidationStatus === 'valid') {
+          setActiveApiKey(tempApiKey);
+          setShowKeyModal(false);
+          initializeChatInterface(tempApiKey, false);
+      }
+  };
+
+  const handleUseDefaultKey = () => {
+      // Use process.env.API_KEY (undefined passed to services implies default)
+      setActiveApiKey(undefined);
+      setShowKeyModal(false);
+      initializeChatInterface(undefined, false);
+  };
+
+  const initializeChatInterface = async (apiKey: string | undefined, showSystemMsg: boolean) => {
     try {
-      const session = await startChatSession();
+      const session = await startChatSession(apiKey);
       setChatSession(session);
 
       const initialMessages: Message[] = [];
@@ -92,23 +96,14 @@ const App: React.FC = () => {
         timestamp: Date.now(),
       });
 
-      // 2. System Notification (Simulating the error style from screenshot for demo if showSystemMsg is true)
-      if (showSystemMsg) {
-        initialMessages.push({
-          id: 'init-2',
-          role: 'system',
-          text: "기본 제공 API Key가 만료되었습니다.\n설정(⚙️) 메뉴에서 본인의 **Google GenAI API Key**를 등록하시면 즉시 이용 가능합니다.",
-          timestamp: Date.now() + 100,
-        });
-      }
-
       setMessages(initialMessages);
     } catch (error) {
       console.error("Failed to start chat:", error);
     }
   };
 
-  // Handle Send Message
+  // --- Chat Logic ---
+
   const handleSendMessage = async (text: string) => {
     if (!text.trim() || !chatSession) return;
 
@@ -174,9 +169,6 @@ const App: React.FC = () => {
   };
 
   const checkForScenes = (text: string) => {
-    // Only set Meta Prompt if it's explicitly explicitly marked (logic to be improved, or removed for now to prevent early trigger)
-    // We removed the loose "includes 'Meta-Prompt'" check to prevent the sidebar from filling up with conversation text.
-    
     const sceneRegex = /(?:Scene|장면)\s+(\d+)[:\s-](.*?)(?=\n(?:Scene|장면)|\n\n|$)/gis;
     let match;
     const newScenes: Scene[] = [];
@@ -207,7 +199,8 @@ const App: React.FC = () => {
 
   const handleGenerateImage = async (sceneId: string, prompt: string) => {
     setScenes(prev => prev.map(s => s.id === sceneId ? { ...s, isGeneratingImage: true } : s));
-    const imageUrl = await generateSceneImage(prompt);
+    // Pass the active API key (or undefined for default)
+    const imageUrl = await generateSceneImage(prompt, activeApiKey);
     if (imageUrl) {
       setScenes(prev => prev.map(s => s.id === sceneId ? { ...s, imageUrl, isGeneratingImage: false } : s));
     } else {
@@ -224,46 +217,131 @@ const App: React.FC = () => {
   };
 
   // -------------------------------------------------------------------------
-  // Render: API Key Landing Page
-  // -------------------------------------------------------------------------
-  if (!isCheckingKey && !hasApiKey) {
-    return (
-      <div className="flex h-screen w-full bg-[#050509] text-zinc-100 items-center justify-center p-4">
-        <div className="max-w-md w-full bg-[#0b0c15] border border-white/10 rounded-2xl p-8 shadow-2xl flex flex-col items-center text-center">
-           <div className="w-16 h-16 bg-gradient-to-tr from-indigo-600 to-purple-600 rounded-2xl flex items-center justify-center shadow-lg mb-6">
-              <Video size={32} className="text-white" />
-           </div>
-           <h1 className="text-2xl font-bold mb-2">Din 비디오 어시스턴트</h1>
-           <p className="text-zinc-400 mb-8 leading-relaxed">
-             AI 기반 영상 기획 파트너 Din과 함께<br/>
-             당신의 아이디어를 현실로 만들어보세요.
-           </p>
-           
-           <button 
-             onClick={handleConnectKey}
-             className="group w-full py-3.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-medium transition-all flex items-center justify-center gap-2 shadow-lg hover:shadow-emerald-500/20"
-           >
-             <KeyRound size={18} />
-             <span>API Key 연결하기</span>
-             <ArrowRight size={18} className="opacity-0 group-hover:opacity-100 -ml-2 group-hover:ml-0 transition-all" />
-           </button>
-           
-           <p className="mt-4 text-xs text-zinc-600">
-             <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" rel="noreferrer" className="underline hover:text-zinc-400">
-               Google AI Studio
-             </a>에서 유료 API Key가 필요합니다.
-           </p>
-        </div>
-      </div>
-    );
-  }
-
-  // -------------------------------------------------------------------------
-  // Render: Main App
+  // Render
   // -------------------------------------------------------------------------
   return (
     <div className="flex h-screen w-full bg-[#050509] text-zinc-100 font-sans overflow-hidden">
       
+      {/* --- API Key Modal --- */}
+      {showKeyModal && (
+        <div className="fixed inset-0 z-[100] bg-black/90 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="w-full max-w-lg bg-[#0b0c15] border border-white/10 rounded-2xl p-6 shadow-2xl relative overflow-hidden">
+                <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-indigo-500 to-purple-500"></div>
+                
+                <div className="flex items-center gap-3 mb-6">
+                    <div className="bg-zinc-800 p-2 rounded-lg">
+                        <KeyRound className="text-indigo-400" size={24} />
+                    </div>
+                    <div>
+                        <h2 className="text-xl font-bold text-white">API Key 설정</h2>
+                        <p className="text-sm text-zinc-400">Din 사용을 위한 접근 권한을 설정합니다.</p>
+                    </div>
+                </div>
+
+                <div className="space-y-4">
+                    <div>
+                        <label className="block text-xs font-medium text-zinc-300 mb-2 ml-1">Google GenAI API Key 입력</label>
+                        <div className="flex gap-2">
+                            <input 
+                                type="password" 
+                                value={tempApiKey}
+                                onChange={(e) => {
+                                    setTempApiKey(e.target.value);
+                                    setKeyValidationStatus('idle'); // Reset on type
+                                    setValidationMsg('');
+                                }}
+                                placeholder="sk-..."
+                                className="flex-1 bg-[#12121a] border border-zinc-700 rounded-xl px-4 py-3 text-sm text-white focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 outline-none transition-all"
+                            />
+                            <button 
+                                onClick={handleValidateKey}
+                                disabled={!tempApiKey || keyValidationStatus === 'checking'}
+                                className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 rounded-xl text-sm font-medium transition-colors disabled:opacity-50"
+                            >
+                                {keyValidationStatus === 'checking' ? <Loader2 className="animate-spin" size={18}/> : "확인"}
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* Status Feedback Section */}
+                    <div className={`rounded-xl p-4 border transition-all duration-300 ${
+                        keyValidationStatus === 'valid' ? 'bg-emerald-900/10 border-emerald-500/20' : 
+                        keyValidationStatus === 'invalid' ? 'bg-red-900/10 border-red-500/20' : 
+                        'bg-zinc-900/50 border-white/5'
+                    }`}>
+                        <div className="flex items-start gap-3">
+                            {keyValidationStatus === 'valid' && <ShieldCheck className="text-emerald-500 mt-0.5" size={18} />}
+                            {keyValidationStatus === 'invalid' && <ShieldAlert className="text-red-500 mt-0.5" size={18} />}
+                            {keyValidationStatus === 'idle' && <Settings className="text-zinc-500 mt-0.5" size={18} />}
+                            {keyValidationStatus === 'checking' && <Loader2 className="text-indigo-500 mt-0.5 animate-spin" size={18} />}
+                            
+                            <div className="flex-1">
+                                <h3 className={`text-sm font-bold mb-1 ${
+                                    keyValidationStatus === 'valid' ? 'text-emerald-400' : 
+                                    keyValidationStatus === 'invalid' ? 'text-red-400' : 
+                                    'text-zinc-400'
+                                }`}>
+                                    {keyValidationStatus === 'valid' ? '인증 성공' : 
+                                     keyValidationStatus === 'invalid' ? '인증 실패' : 
+                                     keyValidationStatus === 'checking' ? '검증 중...' :
+                                     '연결 상태 확인 대기'}
+                                </h3>
+                                
+                                <div className="space-y-1.5 mt-2">
+                                    <div className="flex items-center justify-between text-xs">
+                                        <span className="text-zinc-500">채팅 모델 (Gemini 2.5/3):</span>
+                                        <span className={keyValidationStatus === 'valid' ? 'text-emerald-400 font-medium' : 'text-zinc-600'}>
+                                            {keyValidationStatus === 'valid' ? '사용 가능' : '-'}
+                                        </span>
+                                    </div>
+                                    <div className="flex items-center justify-between text-xs">
+                                        <span className="text-zinc-500">이미지 생성 (Imagen):</span>
+                                        <span className={keyValidationStatus === 'valid' ? 'text-emerald-400 font-medium' : 'text-zinc-600'}>
+                                            {keyValidationStatus === 'valid' ? '사용 가능' : '-'}
+                                        </span>
+                                    </div>
+                                </div>
+                                
+                                {validationMsg && (
+                                    <p className={`text-xs mt-3 pt-3 border-t ${
+                                        keyValidationStatus === 'valid' ? 'border-emerald-500/20 text-emerald-300/80' : 
+                                        keyValidationStatus === 'invalid' ? 'border-red-500/20 text-red-300/80' : 
+                                        'border-white/5 text-zinc-500'
+                                    }`}>
+                                        {validationMsg}
+                                    </p>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="flex gap-3 pt-2">
+                        <button 
+                            onClick={handleUseDefaultKey}
+                            className="flex-1 py-3 px-4 rounded-xl border border-zinc-700 hover:bg-zinc-800 text-zinc-400 hover:text-white text-sm font-medium transition-all"
+                        >
+                            기본 설정 사용 (Build Env)
+                        </button>
+                        <button 
+                            onClick={handleUseCustomKey}
+                            disabled={keyValidationStatus !== 'valid'}
+                            className="flex-1 py-3 px-4 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white text-sm font-bold shadow-lg shadow-indigo-500/20 disabled:opacity-50 disabled:shadow-none transition-all flex items-center justify-center gap-2"
+                        >
+                            <span>시작하기</span>
+                            <ArrowRight size={16} />
+                        </button>
+                    </div>
+                </div>
+                
+                <div className="mt-6 text-center">
+                     <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer" className="text-[10px] text-zinc-500 hover:text-zinc-300 underline transition-colors">
+                        Google AI Studio에서 API Key 발급받기
+                     </a>
+                </div>
+            </div>
+        </div>
+      )}
+
       {/* Mobile Sidebar Overlay */}
       {showSidebar && (
         <div 
@@ -290,12 +368,19 @@ const App: React.FC = () => {
                 <div className="px-3 py-1.5 rounded-md bg-[#11131f] border border-white/5">
                    <span className="text-xs text-blue-400 font-medium">장르: <span className="text-zinc-400 font-normal">미정</span></span>
                 </div>
-                <div className="px-3 py-1.5 rounded-md bg-[#11131f] border border-white/5">
-                   <span className="text-xs text-blue-400 font-medium">비율: <span className="text-zinc-400 font-normal">16:9</span></span>
-                </div>
+                {activeApiKey && (
+                    <div className="px-3 py-1.5 rounded-md bg-[#11131f] border border-emerald-500/20 flex items-center gap-1.5">
+                       <CheckCircle2 size={12} className="text-emerald-500" />
+                       <span className="text-xs text-zinc-400 font-medium">Custom Key</span>
+                    </div>
+                )}
              </div>
 
-             <button className="p-2 ml-1 text-zinc-400 hover:text-white transition-colors">
+             <button 
+                 onClick={() => setShowKeyModal(true)}
+                 className="p-2 ml-1 text-zinc-400 hover:text-white transition-colors"
+                 title="API Key 재설정"
+             >
                 <Settings size={20} />
              </button>
 

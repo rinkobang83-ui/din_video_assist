@@ -28,9 +28,10 @@ AI: "좋은 선택입니다. **카페**에서 시작되는 오프닝 장면의 *
 (Hidden JSON): { "suggestions": ["따뜻한 아침 햇살", "비 오는 날의 차분함", "네온 사이버펑크", "차가운 사무실 형광등"] }
 `;
 
-export const startChatSession = () => {
-  // Initialize client here to ensure it uses the latest API Key
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+export const startChatSession = (customKey?: string) => {
+  // Use custom key if provided, otherwise fallback to env
+  const apiKey = customKey || process.env.API_KEY;
+  const ai = new GoogleGenAI({ apiKey });
   
   return ai.chats.create({
     model: GeminiModel.CHAT,
@@ -63,9 +64,10 @@ export const parseGeminiResponse = (responseText: string): { cleanText: string; 
   return { cleanText, suggestions };
 };
 
-export const generateSceneImage = async (prompt: string): Promise<string | null> => {
+export const generateSceneImage = async (prompt: string, customKey?: string): Promise<string | null> => {
   try {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const apiKey = customKey || process.env.API_KEY;
+    const ai = new GoogleGenAI({ apiKey });
     const response = await ai.models.generateContent({
       model: GeminiModel.IMAGE,
       contents: {
@@ -83,4 +85,23 @@ export const generateSceneImage = async (prompt: string): Promise<string | null>
     console.error("Error generating image:", error);
     return null;
   }
+};
+
+export const validateApiKey = async (apiKey: string): Promise<{ isValid: boolean; message: string }> => {
+    try {
+        const ai = new GoogleGenAI({ apiKey });
+        // Attempt a very cheap/fast generation to validate the key
+        await ai.models.generateContent({
+            model: GeminiModel.CHAT,
+            contents: "Test",
+        });
+        return { isValid: true, message: "API Key Verified" };
+    } catch (error: any) {
+        console.error("API Key Validation Error:", error);
+        let msg = "유효하지 않은 API Key입니다.";
+        if (error.message?.includes("403") || error.toString().includes("403")) {
+            msg = "권한이 없거나 만료된 Key입니다.";
+        }
+        return { isValid: false, message: msg };
+    }
 };
