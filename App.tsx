@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Menu, X, Video, Settings, Plane, Package, Utensils, Clapperboard, Mic, KeyRound, ArrowRight, Navigation, ShieldCheck, ShieldAlert, Loader2, CheckCircle2 } from 'lucide-react';
+import { Menu, X, Video, Settings, Plane, Package, Utensils, Clapperboard, Mic, KeyRound, ArrowRight, Navigation, ShieldCheck, ShieldAlert, Loader2, CheckCircle2, Megaphone, Sparkles } from 'lucide-react';
 import { ChatMessage } from './components/ChatMessage';
 import { SuggestionChips } from './components/SuggestionChips';
 import { ProjectBoard } from './components/ProjectBoard';
@@ -28,13 +28,14 @@ const App: React.FC = () => {
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Quick Starter Chips
+  // Quick Starter Chips - Updated order and added Animation/Ad as requested
   const starters = [
-    { icon: <Plane size={14} className="text-blue-400" />, label: "여행 브이로그", prompt: "감성적인 일본 여행 브이로그를 기획하고 싶어." },
-    { icon: <Package size={14} className="text-amber-400" />, label: "제품 리뷰", prompt: "새로운 테크 제품 언박싱 및 리뷰 영상 기획을 도와줘." },
-    { icon: <Utensils size={14} className="text-pink-400" />, label: "요리/레시피", prompt: "자취생을 위한 간단 요리 레시피 영상 시리즈를 만들고 싶어." },
-    { icon: <Clapperboard size={14} className="text-purple-400" />, label: "단편 영화", prompt: "3분 길이의 미스터리 단편 영화 시나리오를 쓰고 싶어." },
-    { icon: <Mic size={14} className="text-green-400" />, label: "나레이션 영상", prompt: "차분한 목소리의 나레이션이 중심이 되는 에세이 영상을 기획하고 싶어." },
+    { icon: <Clapperboard size={14} className="text-purple-400" />, label: "영화/드라마", prompt: "영화나 드라마 시나리오를 쓰고 싶어. 장르와 소재를 추천해줘." },
+    { icon: <Sparkles size={14} className="text-yellow-400" />, label: "애니메이션", prompt: "애니메이션 영상을 기획하고 싶어. 비주얼 스타일과 스토리를 제안해줘." },
+    { icon: <Mic size={14} className="text-emerald-400" />, label: "나레이션 영상", prompt: "나레이션이 중심이 되는 에세이 영상을 만들고 싶어. 주제를 추천해줘." },
+    { icon: <Megaphone size={14} className="text-red-400" />, label: "광고 영상", prompt: "짧고 강렬한 광고 영상을 기획하고 싶어. 아이디어를 제안해줘." },
+    { icon: <Utensils size={14} className="text-pink-400" />, label: "요리/레시피", prompt: "요리 레시피 영상을 기획하고 싶어. 스타일을 같이 정해보자." },
+    { icon: <Plane size={14} className="text-blue-400" />, label: "브이로그", prompt: "일상이나 여행 브이로그를 기획하고 싶어. 어떤 컨셉이 좋을지 제안해줘." },
   ];
 
   // Scroll to bottom
