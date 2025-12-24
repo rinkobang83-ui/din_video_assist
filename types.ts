@@ -24,11 +24,16 @@ export interface Scene {
   isGeneratingImage?: boolean;
 }
 
+export interface MetaPrompt {
+  en: string;
+  ko: string;
+}
+
 export interface ProjectState {
   title: string;
   status: 'planning' | 'scripting' | 'visualizing' | 'complete';
   scenes: Scene[];
-  metaPrompt: string; // The final output
+  metaPrompt: MetaPrompt | null; // The final output in both languages
 }
 
 export enum GeminiModel {

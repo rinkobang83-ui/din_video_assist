@@ -4,7 +4,7 @@ import { ChatMessage } from './components/ChatMessage';
 import { SuggestionChips } from './components/SuggestionChips';
 import { ProjectBoard } from './components/ProjectBoard';
 import { startChatSession, parseGeminiResponse, generateSceneImage, validateApiKey } from './services/geminiService';
-import { Message, Scene } from './types';
+import { Message, Scene, MetaPrompt } from './types';
 import { Chat } from '@google/genai';
 
 const App: React.FC = () => {
@@ -24,7 +24,7 @@ const App: React.FC = () => {
   
   // --- Project State ---
   const [scenes, setScenes] = useState<Scene[]>([]); 
-  const [metaPrompt, setMetaPrompt] = useState<string | null>(null);
+  const [metaPrompt, setMetaPrompt] = useState<MetaPrompt | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -132,9 +132,18 @@ const App: React.FC = () => {
     try {
       const result = await chatSession.sendMessage({ message: text });
       const responseText = result.text || "죄송합니다. 처리 중에 문제가 발생했습니다.";
-      const { cleanText, suggestions } = parseGeminiResponse(responseText);
+      const { cleanText, suggestions, finalPrompt } = parseGeminiResponse(responseText);
 
       checkForScenes(cleanText);
+
+      // If we got a final prompt structure, update the state
+      if (finalPrompt) {
+          setMetaPrompt(finalPrompt);
+          // If sidebar is hidden on mobile, show it to reveal the result
+          if (window.innerWidth < 768) {
+              setShowSidebar(true);
+          }
+      }
 
       // Replace the typing bubble with the actual response
       setMessages((prev) => prev.map(msg => 
@@ -208,6 +217,12 @@ const App: React.FC = () => {
       setScenes(prev => prev.map(s => s.id === sceneId ? { ...s, isGeneratingImage: false } : s));
       alert("이미지를 생성할 수 없습니다.");
     }
+  };
+
+  const handleUpdateScene = (sceneId: string, newDescription: string) => {
+      setScenes(prev => prev.map(s => 
+          s.id === sceneId ? { ...s, description: newDescription } : s
+      ));
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -471,7 +486,8 @@ const App: React.FC = () => {
         <ProjectBoard 
           scenes={scenes} 
           onGenerateImage={handleGenerateImage} 
-          metaPrompt={metaPrompt} 
+          metaPrompt={metaPrompt}
+          onUpdateScene={handleUpdateScene}
         />
       </div>
 

@@ -1,5 +1,5 @@
 import { GoogleGenAI } from "@google/genai";
-import { Message, GeminiModel } from '../types';
+import { Message, GeminiModel, MetaPrompt } from '../types';
 
 const SYSTEM_INSTRUCTION = `
 당신은 "Din(딘)"입니다. 세계적인 수준의 유튜브 영상 제작 파트너이자 AI 어시스턴트입니다.
@@ -15,20 +15,26 @@ const SYSTEM_INSTRUCTION = `
     - 사용자가 선택하기 가장 쉬운 단답형 키워드 3~5개를 제공하세요.
 5.  **형식:**
     -   주요 응답은 대화체로, 전문적이면서도 격려하는 말투(영화 제작 파트너처럼)를 사용하세요. 한국어로 자연스럽게 대화하세요.
-    -   응답의 맨 마지막에는 반드시 제안(suggestions)을 포함한 JSON 블록을 출력하세요.
-    -   형식: \`\`\`json { "suggestions": ["옵션 1", "옵션 2", "옵션 3"] } \`\`\`
+    -   응답의 맨 마지막에는 반드시 JSON 블록을 출력하세요.
 6.  **장면 일관성:** 장면(Scene)을 구성할 때 등장인물과 배경의 일관성을 유지하세요. "장면 1", "장면 2"와 같이 추적하세요.
-7.  **최종 결과물:** 사용자가 만족하면 최종 "메타 프롬프트(Meta-Prompt)"를 작성하세요. 명확하게 레이블을 붙여주세요.
+7.  **최종 결과물 (필수):** 
+    사용자가 기획을 마치고 "최종 메타 프롬프트 생성"을 요청하면, 일반 텍스트 대신 **반드시 아래 JSON 포맷**으로 전체 프롬프트를 출력해야 합니다.
+    \`\`\`json
+    {
+       "finalPrompt": {
+          "en": "Title: ... \n[Visual Style] ... \n[Scene 1] ...",
+          "ko": "제목: ... \n[시각 스타일] ... \n[장면 1] ..."
+       },
+       "suggestions": ["다시 만들기", "이미지 생성하기"]
+    }
+    \`\`\`
+    *주의: "finalPrompt" 필드는 기획이 완전히 끝났을 때만 포함하세요. 그 전에는 "suggestions"만 포함합니다.*
 
 **대화 단계:**
 1.  **컨셉:** 장르와 주제 설정. (예: "장르부터 정해볼까요?")
 2.  **구조:** 러닝타임과 구성. (예: "영상 길이는 어느 정도로 생각하시나요?")
 3.  **스타일:** 시각적 스타일과 톤.
 4.  **디테일:** 각 장면별 행동, 카메라, 조명.
-
-**예시 상호작용:**
-AI: "좋은 선택입니다. 미스터리 장르군요. **러닝타임**은 어느 정도로 계획하시나요?"
-(Hidden JSON): { "suggestions": ["1분 숏폼", "3분 내외", "5분 단편", "10분 이상"] }
 `;
 
 export const startChatSession = (customKey?: string) => {
@@ -45,26 +51,36 @@ export const startChatSession = (customKey?: string) => {
   });
 };
 
-export const parseGeminiResponse = (responseText: string): { cleanText: string; suggestions: string[] } => {
+export const parseGeminiResponse = (responseText: string): { cleanText: string; suggestions: string[]; finalPrompt?: MetaPrompt } => {
   const jsonBlockRegex = /```json\s*([\s\S]*?)\s*```/;
   const match = responseText.match(jsonBlockRegex);
 
   let suggestions: string[] = [];
+  let finalPrompt: MetaPrompt | undefined = undefined;
   let cleanText = responseText;
 
   if (match && match[1]) {
     try {
       const parsed = JSON.parse(match[1]);
+      
+      // Extract Suggestions
       if (parsed.suggestions && Array.isArray(parsed.suggestions)) {
         suggestions = parsed.suggestions;
       }
+
+      // Extract Final Meta Prompt if present
+      if (parsed.finalPrompt && parsed.finalPrompt.en && parsed.finalPrompt.ko) {
+          finalPrompt = parsed.finalPrompt;
+      }
+
+      // Clean the text by removing the JSON block
       cleanText = responseText.replace(jsonBlockRegex, '').trim();
     } catch (e) {
-      console.error("Failed to parse suggestions JSON", e);
+      console.error("Failed to parse response JSON", e);
     }
   }
 
-  return { cleanText, suggestions };
+  return { cleanText, suggestions, finalPrompt };
 };
 
 export const generateSceneImage = async (prompt: string, customKey?: string): Promise<string | null> => {
