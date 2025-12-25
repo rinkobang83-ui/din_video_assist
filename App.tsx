@@ -234,7 +234,7 @@ const App: React.FC = () => {
           description: content,
           visualPrompt: content + ", cinematic lighting, highly detailed, 8k", 
           audioPrompt: "",
-          duration: "5-10s",
+          duration: "6s", // Updated duration to 6s as requested
         });
       }
     }
